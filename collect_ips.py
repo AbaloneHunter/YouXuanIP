@@ -233,43 +233,4 @@ if ipv4_info:
 # 合并保存所有IP到一个文件
 save_all_ips_to_file(ipv4_info, ipv4_sources, 'ip.txt')
 
-print("\n=== IP收集完成 ===")            print(f"{i}. {ip} - 延迟: 未测试 - 类型: {ip_type} - 来源: {source}")
-        else:
-            print(f"{i}. {ip} - 平均延迟: {latency:.3f}ms - 类型: {ip_type} - 来源: {source}")
-    
-    # 写入文件，在备注中添加IP类型
-    with open(filename, 'w') as f:
-        for ip, latency, source, ip_type in sorted_ips:
-            if latency == float('inf'):
-                f.write(f'{ip}#{ip_type}_{current_time}_{source}优选_未测试\n')
-            else:
-                f.write(f'{ip}#{ip_type}_{current_time}_{source}优选_{latency:.3f}ms\n')
-    
-    print(f'\n已保存 {len(sorted_ips)} 个IP到 {filename}')
-    print(f'格式: IP#类型_时间_来源_延迟')
-
-# 只保存延迟最低的前50个IP地址
-if ip_delays:
-    top_ips = sorted(ip_delays.items(), key=lambda x: x[1])[:50]  # 按延迟升序排列并选择前50个
-
-# 主流程
-print("=== Cloudflare IP收集工具开始运行 ===")
-
-# 获取IPv4地址
-fetch_ips(urls_ipv4, ipv4_pattern, ipv4_sources)
-
-if not ipv4_sources:
-    print("错误: 未找到任何IP地址，程序退出")
-    exit(1)
-
-# 处理IPv4地址
-ipv4_delays = {}
-if ipv4_sources:
-    ipv4_delays = fetch_ip_delays(ipv4_sources)
-else:
-    print("未找到IPv4地址")
-
-# 合并保存所有IP到一个文件
-save_all_ips_to_file(ipv4_delays, ipv4_sources, 'ip.txt')
-
 print("\n=== IP收集完成 ===")
