@@ -2,7 +2,6 @@ import requests
 import re
 import os
 import time
-from datetime import datetime, timezone, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # 目标URL列表
@@ -28,14 +27,28 @@ if os.path.exists('ip.txt'):
 # 用字典存储IP地址和来源，自动去重
 ipv4_sources = {}  # ip: source
 
-# 获取北京时间
-def get_beijing_time():
-    # 使用时区感知的UTC时间
-    utc_now = datetime.now(timezone.utc)
-    beijing_time = utc_now.astimezone(timezone(timedelta(hours=8)))
-    return beijing_time.strftime("%Y%m%d%H%M")
-
-current_time = get_beijing_time()
+# 获取IP的国家信息
+def get_ip_country(ip: str) -> str:
+    """获取IP地址对应的国家"""
+    try:
+        # 使用 ipapi.co 免费API获取IP信息
+        response = requests.get(f'http://ipapi.co/{ip}/country/', timeout=5)
+        if response.status_code == 200:
+            country = response.text.strip()
+            return country if country else 'Unknown'
+        else:
+            return 'Unknown'
+    except:
+        try:
+            # 备用API：ip-api.com
+            response = requests.get(f'http://ip-api.com/json/{ip}', timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                return data.get('country', 'Unknown') if data.get('status') == 'success' else 'Unknown'
+            else:
+                return 'Unknown'
+        except:
+            return 'Unknown'
 
 # 获取IP延迟（3次ping，每次间隔1秒，计算平均延迟）
 def get_ping_latency(ip: str, num_pings: int = 3, interval: int = 1) -> tuple[str, float]:
@@ -123,38 +136,48 @@ def extract_source_name(url: str) -> str:
             return main_domain
         return 'unknown'
 
-# 并发获取延迟
-def fetch_ip_delays(ip_store) -> dict:
+# 并发获取延迟和国家信息
+def fetch_ip_delays_and_countries(ip_store) -> dict:
     if not ip_store:
         print(f"没有找到IPv4地址进行延迟测试")
         return {}
         
-    print(f"\n开始测试 {len(ip_store)} 个IPv4的延迟...")
-    ip_delays = {}
+    print(f"\n开始测试 {len(ip_store)} 个IPv4的延迟和国家信息...")
+    ip_info = {}  # ip: {'latency': float, 'country': str}
     
     with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(get_ping_latency, ip): ip for ip in ip_store.keys()}
+        # 提交延迟测试任务
+        latency_futures = {executor.submit(get_ping_latency, ip): ip for ip in ip_store.keys()}
         
         completed_count = 0
-        for future in as_completed(futures):
+        for future in as_completed(latency_futures):
             ip, latency = future.result()
-            ip_delays[ip] = latency
+            
+            # 获取国家信息
+            print(f"  正在获取IP {ip} 的国家信息...")
+            country = get_ip_country(ip)
+            
+            ip_info[ip] = {
+                'latency': latency,
+                'country': country
+            }
+            
             completed_count += 1
-            print(f"[{completed_count}/{len(ip_store)}] 已完成IPv4 {ip} 的延迟测试: {latency:.3f}ms")
+            print(f"[{completed_count}/{len(ip_store)}] 已完成IPv4 {ip} - 延迟: {latency:.3f}ms - 国家: {country}")
     
-    print(f"所有IPv4延迟测试完成，共测试 {len(ip_delays)} 个IPv4")
-    return ip_delays
+    print(f"所有IPv4测试完成，共测试 {len(ip_info)} 个IPv4")
+    return ip_info
 
 # 合并保存所有IP到一个文件
-def save_all_ips_to_file(ipv4_delays, ipv4_sources, filename):
+def save_all_ips_to_file(ipv4_info, ipv4_sources, filename):
     all_ips = []
     
     # 处理IPv4地址
-    if ipv4_delays:
-        valid_ipv4 = {ip: latency for ip, latency in ipv4_delays.items() if latency != float('inf')}
-        for ip, latency in valid_ipv4.items():
+    if ipv4_info:
+        valid_ipv4 = {ip: info for ip, info in ipv4_info.items() if info['latency'] != float('inf')}
+        for ip, info in valid_ipv4.items():
             source = ipv4_sources.get(ip, 'unknown')
-            all_ips.append((ip, latency, source, "IPv4"))
+            all_ips.append((ip, info['latency'], source, "IPv4", info['country']))
     
     if not all_ips:
         print("错误: 所有IP测试均失败，未找到有效的IP地址")
@@ -165,9 +188,52 @@ def save_all_ips_to_file(ipv4_delays, ipv4_sources, filename):
     
     print(f"\n排序后的IP列表 (共 {len(sorted_ips)} 个):")
     
-    for i, (ip, latency, source, ip_type) in enumerate(sorted_ips, 1):
+    for i, (ip, latency, source, ip_type, country) in enumerate(sorted_ips, 1):
         if latency == float('inf'):
-            print(f"{i}. {ip} - 延迟: 未测试 - 类型: {ip_type} - 来源: {source}")
+            print(f"{i}. {ip} - 延迟: 未测试 - 国家: {country} - 类型: {ip_type} - 来源: {source}")
+        else:
+            print(f"{i}. {ip} - 平均延迟: {latency:.3f}ms - 国家: {country} - 类型: {ip_type} - 来源: {source}")
+    
+    # 写入文件，包含国家信息
+    with open(filename, 'w') as f:
+        for ip, latency, source, ip_type, country in sorted_ips:
+            if latency != float('inf'):  # 只保存测试成功的IP
+                f.write(f'{ip} #{country}\n')  # IP地址后面加上国家
+    
+    print(f'\n已保存 {len([ip for ip in sorted_ips if ip[1] != float("inf")])} 个IP到 {filename}')
+    print(f'格式: IP #国家')
+
+# 主流程
+print("=== Cloudflare IP收集工具开始运行 ===")
+
+# 获取IPv4地址
+fetch_ips(urls_ipv4, ipv4_pattern, ipv4_sources)
+
+if not ipv4_sources:
+    print("错误: 未找到任何IP地址，程序退出")
+    exit(1)
+
+# 处理IPv4地址（延迟和国家信息）
+ipv4_info = {}
+if ipv4_sources:
+    ipv4_info = fetch_ip_delays_and_countries(ipv4_sources)
+else:
+    print("未找到IPv4地址")
+
+# 只显示延迟最低的前50个IP地址
+if ipv4_info:
+    # 过滤掉延迟为无限的IP，然后排序取前50
+    valid_ips = {ip: info for ip, info in ipv4_info.items() if info['latency'] != float('inf')}
+    top_ips = sorted(valid_ips.items(), key=lambda x: x[1]['latency'])[:50]
+    print(f"\n延迟最低的前50个IP地址:")
+    for i, (ip, info) in enumerate(top_ips, 1):
+        source = ipv4_sources.get(ip, 'unknown')
+        print(f"{i}. {ip} - 延迟: {info['latency']:.3f}ms - 国家: {info['country']} - 来源: {source}")
+
+# 合并保存所有IP到一个文件
+save_all_ips_to_file(ipv4_info, ipv4_sources, 'ip.txt')
+
+print("\n=== IP收集完成 ===")            print(f"{i}. {ip} - 延迟: 未测试 - 类型: {ip_type} - 来源: {source}")
         else:
             print(f"{i}. {ip} - 平均延迟: {latency:.3f}ms - 类型: {ip_type} - 来源: {source}")
     
@@ -181,6 +247,10 @@ def save_all_ips_to_file(ipv4_delays, ipv4_sources, filename):
     
     print(f'\n已保存 {len(sorted_ips)} 个IP到 {filename}')
     print(f'格式: IP#类型_时间_来源_延迟')
+
+# 只保存延迟最低的前50个IP地址
+if ip_delays:
+    top_ips = sorted(ip_delays.items(), key=lambda x: x[1])[:50]  # 按延迟升序排列并选择前50个
 
 # 主流程
 print("=== Cloudflare IP收集工具开始运行 ===")
