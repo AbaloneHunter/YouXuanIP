@@ -6,6 +6,8 @@ import time
 import random
 from urllib.parse import urlparse
 import ipaddress
+import subprocess
+import sys
 
 # 目标URL列表
 urls = [
@@ -145,6 +147,55 @@ def format_ip_output(ip, country_code, port=443):
     country_display = get_country_display_name(country_code)
     
     return f"{ip}:{port}#{flag}{country_display}"
+
+def run_git_commands():
+    """执行Git命令来提交更改"""
+    try:
+        print("\n" + "="*60)
+        print(f"{'自动Git提交':^60}")
+        print("="*60)
+        
+        # 检查是否在Git仓库中
+        result = subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'], 
+                              capture_output=True, text=True)
+        if result.returncode != 0:
+            print("当前目录不是Git仓库，跳过Git提交")
+            return
+        
+        # 添加文件到暂存区
+        print("添加文件到Git暂存区...")
+        add_result = subprocess.run(['git', 'add', 'custom_ips.txt'], 
+                                  capture_output=True, text=True)
+        if add_result.returncode != 0:
+            print(f"添加文件失败: {add_result.stderr}")
+            return
+        
+        # 检查是否有更改需要提交
+        status_result = subprocess.run(['git', 'status', '--porcelain'], 
+                                     capture_output=True, text=True)
+        if not status_result.stdout.strip():
+            print("没有需要提交的更改")
+            return
+        
+        # 提交更改
+        print("提交更改到Git...")
+        commit_result = subprocess.run(['git', 'commit', '-m', '更新Cloudflare IP列表'], 
+                                     capture_output=True, text=True)
+        if commit_result.returncode != 0:
+            print(f"提交失败: {commit_result.stderr}")
+            return
+        
+        # 推送到远程仓库
+        print("推送到远程仓库...")
+        push_result = subprocess.run(['git', 'push', 'origin', 'main'], 
+                                   capture_output=True, text=True)
+        if push_result.returncode == 0:
+            print("✅ Git操作完成！文件已提交并推送到远程仓库")
+        else:
+            print(f"推送失败: {push_result.stderr}")
+            
+    except Exception as e:
+        print(f"Git操作出错: {e}")
 
 # 检查custom_ips.txt文件是否存在,如果存在则备份
 if os.path.exists('custom_ips.txt'):
@@ -312,6 +363,9 @@ if formatted_ips:
     for country_code, count in sorted(country_stats.items(), key=lambda x: x[1], reverse=True):
         country_name = COUNTRY_NAMES.get(country_code, country_code)
         print(f'  {COUNTRY_FLAGS.get(country_code, "🏴")} {country_name}: {count}个')
+    
+    # 自动执行Git命令
+    run_git_commands()
     
 else:
     print('没有采集到任何有效的IP地址')
