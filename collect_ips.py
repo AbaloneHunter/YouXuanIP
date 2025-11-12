@@ -157,51 +157,80 @@ def run_git_commands():
         
         # 检查是否在Git仓库中
         result = subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'], 
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, cwd=os.getcwd())
         if result.returncode != 0:
             print("当前目录不是Git仓库，跳过Git提交")
             return
         
-        # 添加文件到暂存区
-        print("添加文件到Git暂存区...")
-        add_result = subprocess.run(['git', 'add', 'custom_ips.txt'], 
-                                  capture_output=True, text=True)
+        # 检查custom_ips.txt文件是否存在
+        if not os.path.exists('custom_ips.txt'):
+            print("custom_ips.txt 文件不存在，跳过Git提交")
+            return
+        
+        # 添加所有更改的文件（包括删除的文件）
+        print("添加所有更改到Git暂存区...")
+        add_result = subprocess.run(['git', 'add', '-A'], 
+                                  capture_output=True, text=True, cwd=os.getcwd())
         if add_result.returncode != 0:
             print(f"添加文件失败: {add_result.stderr}")
             return
         
         # 检查是否有更改需要提交
         status_result = subprocess.run(['git', 'status', '--porcelain'], 
-                                     capture_output=True, text=True)
+                                     capture_output=True, text=True, cwd=os.getcwd())
         if not status_result.stdout.strip():
             print("没有需要提交的更改")
             return
         
+        print("当前Git状态:")
+        status_detailed = subprocess.run(['git', 'status'], 
+                                       capture_output=True, text=True, cwd=os.getcwd())
+        print(status_detailed.stdout)
+        
         # 提交更改
         print("提交更改到Git...")
         commit_result = subprocess.run(['git', 'commit', '-m', '更新Cloudflare IP列表'], 
-                                     capture_output=True, text=True)
+                                     capture_output=True, text=True, cwd=os.getcwd())
         if commit_result.returncode != 0:
             print(f"提交失败: {commit_result.stderr}")
+            # 尝试使用更详细的错误信息
+            print("尝试查看详细的Git状态...")
+            subprocess.run(['git', 'status'], cwd=os.getcwd())
             return
         
         # 推送到远程仓库
         print("推送到远程仓库...")
         push_result = subprocess.run(['git', 'push', 'origin', 'main'], 
-                                   capture_output=True, text=True)
+                                   capture_output=True, text=True, cwd=os.getcwd())
         if push_result.returncode == 0:
             print("✅ Git操作完成！文件已提交并推送到远程仓库")
         else:
             print(f"推送失败: {push_result.stderr}")
+            print("尝试使用强制推送...")
+            push_force_result = subprocess.run(['git', 'push', 'origin', 'main', '--force'], 
+                                             capture_output=True, text=True, cwd=os.getcwd())
+            if push_force_result.returncode == 0:
+                print("✅ 强制推送成功！")
+            else:
+                print(f"强制推送也失败: {push_force_result.stderr}")
             
     except Exception as e:
         print(f"Git操作出错: {e}")
 
-# 检查custom_ips.txt文件是否存在,如果存在则备份
-if os.path.exists('custom_ips.txt'):
-    backup_name = f"custom_ips_backup_{int(time.time())}.txt"
-    os.rename('custom_ips.txt', backup_name)
-    print(f"已备份原custom_ips.txt为{backup_name}")
+def cleanup_old_files():
+    """清理旧文件"""
+    old_files = ['ip.txt']
+    for file in old_files:
+        if os.path.exists(file):
+            try:
+                # 从Git中删除旧文件（如果存在）
+                subprocess.run(['git', 'rm', file], capture_output=True, text=True, cwd=os.getcwd())
+                print(f"已从Git中删除 {file}")
+            except:
+                pass
+            # 删除本地文件
+            os.remove(file)
+            print(f"已删除旧文件 {file}")
 
 # 设置请求头，模拟浏览器访问
 headers = {
@@ -272,6 +301,16 @@ def process_generic_site(soup):
 print("="*60)
 print(f"{'Cloudflare IP采集工具 v1.0':^60}")
 print("="*60)
+
+# 清理旧文件
+print("清理旧文件...")
+cleanup_old_files()
+
+# 检查custom_ips.txt文件是否存在,如果存在则备份
+if os.path.exists('custom_ips.txt'):
+    backup_name = f"custom_ips_backup_{int(time.time())}.txt"
+    os.rename('custom_ips.txt', backup_name)
+    print(f"已备份原custom_ips.txt为{backup_name}")
 
 # 创建一个集合来存储所有IP地址
 all_ips = set()
