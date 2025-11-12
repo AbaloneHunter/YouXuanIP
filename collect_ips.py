@@ -148,12 +148,43 @@ def format_ip_output(ip, country_code, port=443):
     
     return f"{ip}:{port}#{flag}{country_display}"
 
+def setup_git_config():
+    """配置Git用户信息"""
+    try:
+        print("配置Git用户信息...")
+        
+        # 配置邮箱
+        email_result = subprocess.run(['git', 'config', '--global', 'user.email', 'codger.gg@gmail.com'], 
+                                    capture_output=True, text=True, cwd=os.getcwd())
+        if email_result.returncode != 0:
+            print(f"配置Git邮箱失败: {email_result.stderr}")
+            return False
+        
+        # 配置用户名
+        name_result = subprocess.run(['git', 'config', '--global', 'user.name', 'AbaloneHunter'], 
+                                   capture_output=True, text=True, cwd=os.getcwd())
+        if name_result.returncode != 0:
+            print(f"配置Git用户名失败: {name_result.stderr}")
+            return False
+        
+        print("✅ Git用户信息配置成功")
+        return True
+        
+    except Exception as e:
+        print(f"配置Git用户信息出错: {e}")
+        return False
+
 def run_git_commands():
     """执行Git命令来提交更改"""
     try:
         print("\n" + "="*60)
         print(f"{'自动Git提交':^60}")
         print("="*60)
+        
+        # 首先配置Git用户信息
+        if not setup_git_config():
+            print("Git用户信息配置失败，跳过Git提交")
+            return
         
         # 检查是否在Git仓库中
         result = subprocess.run(['git', 'rev-parse', '--is-inside-work-tree'], 
@@ -193,9 +224,6 @@ def run_git_commands():
                                      capture_output=True, text=True, cwd=os.getcwd())
         if commit_result.returncode != 0:
             print(f"提交失败: {commit_result.stderr}")
-            # 尝试使用更详细的错误信息
-            print("尝试查看详细的Git状态...")
-            subprocess.run(['git', 'status'], cwd=os.getcwd())
             return
         
         # 推送到远程仓库
@@ -206,13 +234,6 @@ def run_git_commands():
             print("✅ Git操作完成！文件已提交并推送到远程仓库")
         else:
             print(f"推送失败: {push_result.stderr}")
-            print("尝试使用强制推送...")
-            push_force_result = subprocess.run(['git', 'push', 'origin', 'main', '--force'], 
-                                             capture_output=True, text=True, cwd=os.getcwd())
-            if push_force_result.returncode == 0:
-                print("✅ 强制推送成功！")
-            else:
-                print(f"强制推送也失败: {push_force_result.stderr}")
             
     except Exception as e:
         print(f"Git操作出错: {e}")
